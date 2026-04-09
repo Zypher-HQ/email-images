@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Image Uploader - jsDelivr CDN</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .drag-over { border-color: #3b82f6; background-color: #eff6ff; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen flex flex-col items-center py-12 px-4">
+    <div class="max-w-2xl w-full bg-white rounded-xl shadow-sm border border-gray-200 p-8">
+        <h1 class="text-2xl font-bold text-gray-900 mb-2">Email Image Uploader</h1>
+        <p class="text-gray-600 mb-8">Upload images to your GitHub repo and get instant jsDelivr CDN links for your emails.</p>
+
+        <!-- Configuration -->
+        <div id="setup-section" class="mb-8 p-4 bg-blue-50 rounded-lg border border-blue-100">
+            <h2 class="text-sm font-semibold text-blue-800 uppercase tracking-wider mb-3">Setup</h2>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">GitHub Personal Access Token (with 'repo' scope)</label>
+                    <input type="password" id="gh-token" class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm" placeholder="ghp_xxxxxxxxxxxx">
+                    <p class="mt-1 text-xs text-gray-500">Your token is only stored locally in your browser's session storage.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Upload Section -->
+        <div id="upload-area" class="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center transition-colors cursor-pointer hover:border-blue-400">
+            <input type="file" id="file-input" class="hidden" accept="image/*">
+            <div class="space-y-2">
+                <svg class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true">
+                    <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+                <div class="text-sm text-gray-600">
+                    <span class="text-blue-600 font-medium">Click to upload</span> or drag and drop
+                </div>
+                <p class="text-xs text-gray-500">PNG, JPG, GIF up to 200KB (Recommended)</p>
+            </div>
+        </div>
+
+        <!-- Progress/Status -->
+        <div id="status" class="mt-6 hidden">
+            <div class="flex items-center space-x-3">
+                <div id="spinner" class="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+                <span id="status-text" class="text-sm text-gray-700">Uploading...</span>
+            </div>
+        </div>
+
+        <!-- Result Section -->
+        <div id="result-section" class="mt-8 hidden space-y-4">
+            <h3 class="text-lg font-medium text-gray-900">Successfully Uploaded!</h3>
+            
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">jsDelivr CDN Link</label>
+                <div class="flex mt-1">
+                    <input type="text" id="cdn-link" readonly class="flex-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded-l-md text-sm text-gray-600">
+                    <button onclick="copyToClipboard('cdn-link')" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-r-md hover:bg-blue-700 focus:outline-none">Copy</button>
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">HTML Tag</label>
+                <div class="flex mt-1">
+                    <input type="text" id="html-tag" readonly class="flex-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded-l-md text-sm text-gray-600">
+                    <button onclick="copyToClipboard('html-tag')" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-r-md hover:bg-blue-700 focus:outline-none">Copy</button>
+                </div>
+            </div>
+
+            <div class="mt-4 border rounded-lg overflow-hidden bg-gray-50 p-4 flex justify-center">
+                <img id="preview-img" src="" alt="Preview" class="max-h-48 rounded shadow-sm">
+            </div>
+        </div>
+    </div>
+
+    <footer class="mt-12 text-gray-500 text-sm">
+        Powered by GitHub & jsDelivr
+    </footer>
+
+    <script>
+        const REPO_OWNER = 'Zypher-HQ'; // To be replaced during setup
+        const REPO_NAME = 'email-images';
+        const BRANCH = 'main';
+
+        const fileInput = document.getElementById('file-input');
+        const uploadArea = document.getElementById('upload-area');
+        const ghTokenInput = document.getElementById('gh-token');
+        const statusDiv = document.getElementById('status');
+        const statusText = document.getElementById('status-text');
+        const resultSection = document.getElementById('result-section');
+        const cdnLinkInput = document.getElementById('cdn-link');
+        const htmlTagInput = document.getElementById('html-tag');
+        const previewImg = document.getElementById('preview-img');
+
+        // Load token from session storage
+        ghTokenInput.value = sessionStorage.getItem('gh_token') || '';
+        ghTokenInput.addEventListener('change', (e) => {
+            sessionStorage.setItem('gh_token', e.target.value);
+        });
+
+        // Drag and drop events
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            uploadArea.addEventListener(eventName, preventDefaults, false);
+        });
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            uploadArea.addEventListener(eventName, () => uploadArea.classList.add('drag-over'), false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            uploadArea.addEventListener(eventName, () => uploadArea.classList.remove('drag-over'), false);
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            const files = e.dataTransfer.files;
+            if (files.length) handleUpload(files[0]);
+        });
+
+        uploadArea.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length) handleUpload(e.target.files[0]);
+        });
+
+        async function handleUpload(file) {
+            const token = ghTokenInput.value.trim();
+            if (!token) {
+                alert('Please enter your GitHub Personal Access Token first.');
+                return;
+            }
+
+            if (file.size > 1024 * 1024 * 5) { // 5MB limit for GitHub API
+                alert('File is too large. Please keep it under 5MB.');
+                return;
+            }
+
+            showStatus('Uploading to GitHub...');
+            resultSection.classList.add('hidden');
+
+            try {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = async () => {
+                    const content = reader.result.split(',')[1];
+                    const fileName = `images/${Date.now()}-${file.name.replace(/\s+/g, '-')}`;
+                    const url = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${fileName}`;
+
+                    const response = await fetch(url, {
+                        method: 'PUT',
+                        headers: {
+                            'Authorization': `token ${token}`,
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            message: `Upload ${file.name} via Web UI`,
+                            content: content,
+                            branch: BRANCH
+                        })
+                    });
+
+                    if (response.ok) {
+                        const cdnUrl = `https://cdn.jsdelivr.net/gh/${REPO_OWNER}/${REPO_NAME}@${BRANCH}/${fileName}`;
+                        displayResult(cdnUrl);
+                        showStatus('Success!', false);
+                    } else {
+                        const error = await response.json();
+                        throw new Error(error.message || 'Failed to upload');
+                    }
+                };
+            } catch (err) {
+                showStatus(`Error: ${err.message}`, false);
+                console.error(err);
+            }
+        }
+
+        function displayResult(url) {
+            cdnLinkInput.value = url;
+            htmlTagInput.value = `<img src="${url}" alt="Image" />`;
+            previewImg.src = url;
+            resultSection.classList.remove('hidden');
+        }
+
+        function showStatus(text, showSpinner = true) {
+            statusDiv.classList.remove('hidden');
+            statusText.innerText = text;
+            document.getElementById('spinner').style.display = showSpinner ? 'block' : 'none';
+        }
+
+        function copyToClipboard(id) {
+            const input = document.getElementById(id);
+            input.select();
+            document.execCommand('copy');
+            alert('Copied to clipboard!');
+        }
+    </script>
+</body>
+</html>
